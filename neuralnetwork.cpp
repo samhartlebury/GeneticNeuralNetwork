@@ -5,8 +5,166 @@
 
 NeuralNetwork::NeuralNetwork(QObject *parent) : QObject(parent)
 {
+    resetError();
+}
+
+NeuralNetwork::~NeuralNetwork()
+{
+    qDeleteAll(m_perceptrons);
+    m_perceptrons.clear();
+}
+
+Perceptron *NeuralNetwork::createPerceptron()
+{
+    Perceptron *perceptron = new Perceptron();
+    m_perceptrons << perceptron;
+    return perceptron;
+}
+
+void NeuralNetwork::initialiseNetwork(int inputs, QVector<int> layers)
+{
+    m_inputs = inputs;
+    m_layers = layers;
+
+    for (int i = 0; i < layers.size(); ++i)
+    {
+        for (int j = 0; j < layers[i]; ++j)
+        {
+            auto *perceptron = createPerceptron();
+
+            m_networkMap.insertMulti(i, perceptron);
+
+            if (i == 0)
+            {
+                perceptron->initialiseWeights(m_inputs, 1000.0);
+                continue;
+            }
+
+           auto parents = m_networkMap.values(i - 1);
+           perceptron->initialiseWeights(parents.size(), 1000.0);
+           perceptron->setNetworkParents(parents.toVector());
+        }
+    }
+}
+
+QVector<Perceptron *> NeuralNetwork::perceptrons()
+{
+    return m_perceptrons;
+}
+
+float NeuralNetwork::run(QVector<float> inputs)
+{
+    return m_perceptrons.last()->networkRun(inputs);
+}
+
+void NeuralNetwork::runAndSaveError(QVector<float> inputs, float target, int divider)
+{
+    m_error += qPow(m_perceptrons.last()->networkRun(inputs) - target, 2) / float(divider);
+
+   // float newError = qPow(m_perceptrons.last()->networkRun(inputs) - target, 2);
+
+   // setError(newError);
 
 }
+
+float NeuralNetwork::error()
+{
+    std::shared_lock<std::shared_mutex> lock(m_errorMutex);
+    return m_error;
+}
+
+void NeuralNetwork::setError(float error)
+{
+    std::unique_lock<std::shared_mutex> lock(m_errorMutex);
+    m_error += error;
+}
+
+void NeuralNetwork::resetError()
+{
+    std::unique_lock<std::shared_mutex> lock(m_errorMutex);
+    m_error = 0.0;
+}
+
+void NeuralNetwork::clone(NeuralNetwork *other)
+{
+    m_error = other->error();
+
+    qDeleteAll(m_perceptrons);
+    m_perceptrons.clear();
+    m_networkMap.clear();
+
+    initialiseNetwork(other->m_inputs, other->m_layers);
+
+    if (m_perceptrons.size() != other->m_perceptrons.size())
+        Q_ASSERT(false);
+
+    for (int i = 0; i < m_perceptrons.size(); ++i)
+    {
+        m_perceptrons[i]->clone(other->m_perceptrons[i]);
+    }
+}
+
+
+NeuralNetwork *NeuralNetwork::breed(NeuralNetwork *mate, float mutationRate, float amount)
+{
+    NeuralNetwork *child = new NeuralNetwork();
+
+    child->initialiseNetwork(m_inputs, m_layers);
+
+   // for (int i = 0; i < m_perceptrons.size(); ++i)
+  //  {
+       // auto *offspring = m_perceptrons[i]->breed(mate->m_perceptrons[i], mutationRate, amount);
+      //  child->m_perceptrons[i]->clone(offspring);
+       // delete offspring;
+
+   // }
+
+    crossOverBreed(child, this, mate, mutationRate, amount);
+
+    return child;
+}
+
+void NeuralNetwork::crossOverBreed(NeuralNetwork *child, NeuralNetwork *mateA, NeuralNetwork *mateB, float mutationRate, float amount)
+{
+    int crossoverPoint = qrand() % mateA->m_perceptrons.size();
+
+    for (int i = 0; i < mateA->m_perceptrons.size(); ++i)
+        child->m_perceptrons[i]->clone(i < crossoverPoint ? mateA->m_perceptrons[i] : mateB->m_perceptrons[i]);
+
+
+    for (int i = 0; i < mateA->m_perceptrons.size(); ++i)
+    if (!(qrand() % int((1.0 / mutationRate) + 0.5)))
+    {
+        auto *randomPerceptron = child->m_perceptrons[qrand() % child->m_perceptrons.size()];
+        randomPerceptron->mutate(amount);
+    }
+}
+
+QByteArray NeuralNetwork::drawNetwork()
+{
+    QByteArray output;
+    for (auto level : m_networkMap.keys())
+    {
+        output += "Level " + QString::number(level + 1) + "\n";
+        int perceptronCount = 1;
+        for (auto *perceptron : m_networkMap.values(level))
+        {
+            output += "Perceptron" + QString::number(perceptronCount) + "\n";
+            output += "Bias =" + QString::number(perceptron->bias()) + "\n";
+            output += "Weights = ";
+            for (auto weight : perceptron->weights())
+                output += QString::number(weight) + ", ";
+
+            output += "\n";
+            perceptronCount++;
+        }
+
+        output += "\n\n";
+    }
+
+    return output;
+}
+
 
 Perceptron::Perceptron(QObject *parent) : QObject(parent)
 {
@@ -37,8 +195,6 @@ void Perceptron::fit(QVector<QVector<float> > inputs, QVector<float> outputs)
     int runs = 10000;
     float trainingRate = 0.1;
     float smallestError = 100;
-
-    qsrand(QDateTime::currentMSecsSinceEpoch());
 
     for (int i = 0; i < runs; ++i)
     {
@@ -96,7 +252,8 @@ float Perceptron::run(QVector<float> inputs)
         total += inputs[i] * m_weights[i];
     }
 
-    return total;
+    float result = sigmoid(total);
+    return /*result < 0 ? 0 :*/ result;
 }
 
 void Perceptron::setWeights(const QVector<float> &weights)
@@ -111,7 +268,6 @@ float Perceptron::error()
 
 Perceptron* Perceptron::breed(Perceptron *mate, float mutationRate, float amount)
 {
-    qsrand(QDateTime::currentMSecsSinceEpoch());
     auto mineOrTheirs = []()->bool { return qrand() % 2;};
 
     auto *child = new Perceptron();
@@ -145,7 +301,7 @@ float Perceptron::sigmoid(float x)
 void Perceptron::clone(Perceptron *other)
 {
     m_bias = other->m_bias;
-    m_weights = other->m_weights;
+    m_weights = QVector<float>(other->m_weights);
     m_error = other->m_error;
 }
 
@@ -178,10 +334,13 @@ QVector<float> Perceptron::weights() const
 
 void Perceptron::mutate(float max)
 {
-    qsrand(QDateTime::currentMSecsSinceEpoch());
+    float randomFloat = static_cast<float>(qrand()) / static_cast<float>(RAND_MAX);
+    float mutationFactor = randomFloat * max;
 
-    float mutationFactor = (float(qrand() % int(1000 * (max * 2))) / 1000.0) - max;
-    int indexToMutate = qrand() % m_weights.size() + 1;
+    if (qrand() % 2)
+        mutationFactor *= -1.0;
+
+    int indexToMutate = qrand() % (m_weights.size() + 1);
 
     if (indexToMutate == m_weights.size())
         m_bias *= mutationFactor;
@@ -192,7 +351,7 @@ void Perceptron::mutate(float max)
 void Perceptron::runAndSaveError(QVector<float> inputs, float target, int divider)
 {
     // Sum Square Error
-  //  m_error += qPow(run(inputs) - target, 2);
+    //  m_error += qPow(run(inputs) - target, 2);
     // Mean Square Error
     m_error += qPow(run(inputs) - target, 2) / float(divider);
 }
@@ -200,6 +359,39 @@ void Perceptron::runAndSaveError(QVector<float> inputs, float target, int divide
 void Perceptron::resetError()
 {
     m_error = 0;
+}
+
+void Perceptron::setNetworkParent(Perceptron *parent)
+{
+    m_networkParent = parent;
+}
+
+void Perceptron::setNetworkParents(QVector<Perceptron *> parents)
+{
+    m_networkParents = parents;
+}
+
+QVector<Perceptron *> Perceptron::networkParents()
+{
+    return m_networkParents;
+}
+
+Perceptron *Perceptron::networkParent()
+{
+    return m_networkParent;
+}
+
+float Perceptron::networkRun(QVector<float> inputs)
+{
+    if (m_networkParents.isEmpty())
+        return run(inputs);
+
+    QVector<float> parentsOutputs;
+
+    for (auto *parent : m_networkParents)
+        parentsOutputs << parent->networkRun(inputs);
+
+    return run(parentsOutputs);
 }
 
 
