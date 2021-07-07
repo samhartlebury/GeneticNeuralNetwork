@@ -33,6 +33,10 @@ public:
 
     void clone(Perceptron *other);
     bool operator==(const Perceptron &other);
+    bool sigmoidActivationEnabled();
+    void setSigmoidActivationEnabled(bool enabled);
+    bool roundOutput();
+    void setRoundOutput(bool enabled);
 
     float bias() const;
     QVector<float> weights() const;
@@ -55,10 +59,13 @@ public:
 
 private:
     QVector<float> m_weights;
+    QVector<float> m_exponents;
     float m_bias;
     float m_error = 0;
     Perceptron *m_networkParent;
     QVector<Perceptron*> m_networkParents;
+    bool m_sigmoidActivationEnabled = true;
+    bool m_roundOutput = false;
 };
 
 
@@ -70,13 +77,17 @@ public:
     explicit NeuralNetwork(QObject *parent = nullptr);
     ~NeuralNetwork();
     Perceptron *createPerceptron();
-    void initialiseNetwork(int inputs, QVector<int> layers);
+    void initialiseNetwork(int inputs, QVector<int> layers, bool sigmoidOutputLayer = true);
 
     QVector<Perceptron*> perceptrons();
 
 
     float run(QVector<float> inputs);
+    QVector<float> runMultiOutput(QVector<float> inputs);
+
     void runAndSaveError(QVector<float> inputs, float target, int divider = 1);
+    void runMultiOutputAndSaveError(QVector<float> inputs, QVector<float> targets, int divider = 1);
+
     float error();
     void setError(float error);
     void resetError();

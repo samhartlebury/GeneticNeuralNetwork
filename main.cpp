@@ -11,6 +11,7 @@
 #include <qmath.h>
 #include <vector>
 #include "neuralnetwork.h"
+#include <iostream>
 #include "opencv2/opencv.hpp"
 
 int main(int argc, char *argv[])
@@ -19,34 +20,34 @@ int main(int argc, char *argv[])
     qsrand(QDateTime::currentMSecsSinceEpoch());
 
     QVector<QVector<float>> trainingInputs;
-    trainingInputs << QVector<float>({0, 0, 0}) <<
-                      QVector<float>({0, 0, 1}) <<
-                      QVector<float>({0, 1, 0}) <<
-                      QVector<float>({0, 1, 1}) <<
-                      QVector<float>({1, 0, 0}) <<
-                      QVector<float>({1, 0, 1}) <<
-                      QVector<float>({1, 1, 0}) <<
-                      QVector<float>({1, 1, 1});
+    trainingInputs << std::initializer_list<float>({0, 0, 0}) <<
+                      std::initializer_list<float>({0, 0, 1}) <<
+                      std::initializer_list<float>({0, 1, 0}) <<
+                      std::initializer_list<float>({0, 1, 1}) <<
+                      std::initializer_list<float>({1, 0, 0}) <<
+                      std::initializer_list<float>({1, 0, 1}) <<
+                      std::initializer_list<float>({1, 1, 0}) <<
+                      std::initializer_list<float>({1, 1, 1});
 
 
-    QVector<float> trainingOutputs;
-    trainingOutputs << 0 <<
-                       1 <<
-                       1 <<
-                       0 <<
-                       1 <<
-                       0 <<
-                       0 <<
-                       0;
+    QVector<QVector<float>> trainingOutputs;
+    trainingOutputs << std::initializer_list<float>({0}) <<
+                       std::initializer_list<float>({1}) <<
+                       std::initializer_list<float>({1}) <<
+                       std::initializer_list<float>({0}) <<
+                       std::initializer_list<float>({1}) <<
+                       std::initializer_list<float>({0}) <<
+                       std::initializer_list<float>({0}) <<
+                       std::initializer_list<float>({0});
 
-    int poolSize = 1000;
-    int runs = 1000;
+    int poolSize = 10000;
+    int runs = 100;
     int tournementSize = 10;
     float mutationRate = 0.5;
     float mutationMaxChange = 1.0;
 
     QVector<int> layers;
-    layers << 3 << 1;
+    layers << 2 << 1;
 
     int dataSetSize = trainingInputs.size();
     int nInputs = trainingInputs.first().size();
@@ -64,12 +65,8 @@ int main(int argc, char *argv[])
         bool debug = true;
     }
 
-
-
     QVector<NeuralNetwork*> breedingPool(poolSize / tournementSize);
     QMap<int, NeuralNetwork*> tournamentWinners;
-
-
 
     auto shufflePool = [](QVector<NeuralNetwork*> &pool)->void
     {
@@ -110,7 +107,8 @@ int main(int argc, char *argv[])
             auto &inputs = trainingInputs[i];
             auto &target = trainingOutputs[i];
 
-            network->runAndSaveError(inputs, target, dataSetSize);
+            //network->runAndSaveError(inputs, target);
+            network->runMultiOutputAndSaveError(inputs, target);
             }
         });
 
@@ -197,7 +195,7 @@ int main(int argc, char *argv[])
         auto &target = trainingOutputs[i];
         qDebug() << "Input =" << trainingSet;
         qDebug() << "Target =" << target;
-        qDebug() << "Output =" << bestOverallNeuralNetwork.run(trainingSet);
+        qDebug() << "Output =" << bestOverallNeuralNetwork.runMultiOutput(trainingSet);
         qDebug() << "\n\n\n";
     }
 
@@ -214,6 +212,28 @@ int main(int argc, char *argv[])
 
     qDeleteAll(networkPool);
     networkPool.clear();
+
+    for (;;)
+    {
+        char binaryIn[20];
+        std::cout << "\nEnter a binary number: ";
+        std::cin >> binaryIn;
+
+        auto charArray = QString(binaryIn);
+        QVector<float> inputs(3);
+        for (auto &input : inputs)
+            input = 0;
+
+        for (int i = 0; i < inputs.size(); ++i)
+             inputs[i] = QString(charArray[i]).toFloat();
+
+        qDebug() << inputs;
+
+        auto result = bestOverallNeuralNetwork.runMultiOutput(inputs);
+
+        qDebug() << "Result: " << result;
+    }
+
 
     return a.exec();
 }

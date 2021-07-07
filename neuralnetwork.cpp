@@ -21,7 +21,7 @@ Perceptron *NeuralNetwork::createPerceptron()
     return perceptron;
 }
 
-void NeuralNetwork::initialiseNetwork(int inputs, QVector<int> layers)
+void NeuralNetwork::initialiseNetwork(int inputs, QVector<int> layers, bool sigmoidOutputLayer)
 {
     m_inputs = inputs;
     m_layers = layers;
@@ -40,9 +40,16 @@ void NeuralNetwork::initialiseNetwork(int inputs, QVector<int> layers)
                 continue;
             }
 
-           auto parents = m_networkMap.values(i - 1);
-           perceptron->initialiseWeights(parents.size(), 1000.0);
-           perceptron->setNetworkParents(parents.toVector());
+            auto parents = m_networkMap.values(i - 1);
+            perceptron->initialiseWeights(parents.size(), 1000.0);
+            perceptron->setNetworkParents(parents.toVector());
+
+            // Disable sigmoid activation for Output perceptron layer so it can be used for regression problems
+            if (i == layers.size() - 1 && !sigmoidOutputLayer)
+            {
+                perceptron->setSigmoidActivationEnabled(false);
+                // perceptron->setRoundOutput(true);
+            }
         }
     }
 }
@@ -57,14 +64,42 @@ float NeuralNetwork::run(QVector<float> inputs)
     return m_perceptrons.last()->networkRun(inputs);
 }
 
+QVector<float> NeuralNetwork::runMultiOutput(QVector<float> inputs)
+{
+    int outputLayerIndex = m_layers.size() - 1;
+    auto outputLayer = m_networkMap.values(outputLayerIndex);
+
+    QVector<float> outputs;
+    for (auto *perceptron : outputLayer)
+    {
+        float result = perceptron->networkRun(inputs);
+        outputs << result;
+    }
+
+    return outputs;
+}
+
 void NeuralNetwork::runAndSaveError(QVector<float> inputs, float target, int divider)
 {
-    m_error += qPow(m_perceptrons.last()->networkRun(inputs) - target, 2) / float(divider);
+    m_error += qPow(run(inputs) - target, 2) / float(divider);
 
-   // float newError = qPow(m_perceptrons.last()->networkRun(inputs) - target, 2);
+    // float newError = qPow(m_perceptrons.last()->networkRun(inputs) - target, 2);
 
-   // setError(newError);
+    // setError(newError);
 
+}
+
+void NeuralNetwork::runMultiOutputAndSaveError(QVector<float> inputs, QVector<float> targets, int divider)
+{
+    auto outputs = runMultiOutput(inputs);
+
+    for (int i = 0; i < outputs.size(); ++i)
+    {
+        auto output = outputs[i];
+        auto target = targets[i];
+
+        m_error += qPow(output - target, 2) / float(divider);
+    }
 }
 
 float NeuralNetwork::error()
@@ -111,13 +146,13 @@ NeuralNetwork *NeuralNetwork::breed(NeuralNetwork *mate, float mutationRate, flo
 
     child->initialiseNetwork(m_inputs, m_layers);
 
-   // for (int i = 0; i < m_perceptrons.size(); ++i)
-  //  {
-       // auto *offspring = m_perceptrons[i]->breed(mate->m_perceptrons[i], mutationRate, amount);
-      //  child->m_perceptrons[i]->clone(offspring);
-       // delete offspring;
+    // for (int i = 0; i < m_perceptrons.size(); ++i)
+    //  {
+    // auto *offspring = m_perceptrons[i]->breed(mate->m_perceptrons[i], mutationRate, amount);
+    //  child->m_perceptrons[i]->clone(offspring);
+    // delete offspring;
 
-   // }
+    // }
 
     crossOverBreed(child, this, mate, mutationRate, amount);
 
@@ -133,11 +168,11 @@ void NeuralNetwork::crossOverBreed(NeuralNetwork *child, NeuralNetwork *mateA, N
 
 
     for (int i = 0; i < mateA->m_perceptrons.size(); ++i)
-    if (!(qrand() % int((1.0 / mutationRate) + 0.5)))
-    {
-        auto *randomPerceptron = child->m_perceptrons[qrand() % child->m_perceptrons.size()];
-        randomPerceptron->mutate(amount);
-    }
+        if (!(qrand() % int((1.0 / mutationRate) + 0.5)))
+        {
+            auto *randomPerceptron = child->m_perceptrons[qrand() % child->m_perceptrons.size()];
+            randomPerceptron->mutate(amount);
+        }
 }
 
 QByteArray NeuralNetwork::drawNetwork()
@@ -169,6 +204,7 @@ QByteArray NeuralNetwork::drawNetwork()
 Perceptron::Perceptron(QObject *parent) : QObject(parent)
 {
     reset();
+    m_sigmoidActivationEnabled = true;
 }
 
 void Perceptron::initialiseWeights(int nInputs, int limit)
@@ -252,8 +288,16 @@ float Perceptron::run(QVector<float> inputs)
         total += inputs[i] * m_weights[i];
     }
 
-    float result = sigmoid(total);
-    return /*result < 0 ? 0 :*/ result;
+    float resultSigmoided = sigmoid(total);
+
+    float finalResult = total;
+
+    if (m_sigmoidActivationEnabled)
+        finalResult = resultSigmoided;
+    if (m_roundOutput)
+        finalResult = int(finalResult + 0.5);
+
+    return finalResult;
 }
 
 void Perceptron::setWeights(const QVector<float> &weights)
@@ -320,6 +364,26 @@ bool Perceptron::operator==(const Perceptron &other)
     }
 
     return true;
+}
+
+bool Perceptron::sigmoidActivationEnabled()
+{
+    return m_sigmoidActivationEnabled;
+}
+
+void Perceptron::setSigmoidActivationEnabled(bool enabled)
+{
+    m_sigmoidActivationEnabled = enabled;
+}
+
+bool Perceptron::roundOutput()
+{
+    return m_roundOutput;
+}
+
+void Perceptron::setRoundOutput(bool enabled)
+{
+    m_roundOutput = enabled;
 }
 
 float Perceptron::bias() const
